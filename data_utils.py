@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 
+
 def merge_data(stocks_file: str, factors_file: str, output_dir="data") -> pd.DataFrame:
     stocks_df = pd.read_csv(stocks_file, parse_dates=["Dates"])
     factors_df = pd.read_csv(factors_file, parse_dates=["Date"])
@@ -32,6 +33,7 @@ def build_static_stock_universe(df: pd.DataFrame) -> pd.DataFrame:
     print(f"[INFO] Dropped incomplete stocks. Remaining: {len(stock_cols)} columns (excluding NIFTY).")
     print(f"[INFO] Rows after cleaning: {df_clean.shape[0]}")
     return df_clean
+
 
 def convert_prices_to_returns(df: pd.DataFrame, output_dir: str = "data") -> pd.DataFrame:
     """
