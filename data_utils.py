@@ -24,13 +24,13 @@ def merge_data(stocks_file: str, factors_file: str, output_dir="data") -> pd.Dat
 
 
 def build_static_stock_universe(df: pd.DataFrame) -> pd.DataFrame:
-    stock_cols = [
-        c for c in df.columns
-        if c not in ["Date","MF","RF"] and "NIFTY" not in c.upper()
-    ]
+    # stock_cols = [
+    #     c for c in df.columns
+    #     if c not in ["Date","MF","RF"] and "NIFTY" not in c.upper()
+    # ]
 
-    df_clean = df.dropna(subset=stock_cols, how="any").copy()
-    print(f"[INFO] Dropped incomplete stocks. Remaining: {len(stock_cols)} columns (excluding NIFTY).")
+    df_clean = df.dropna(axis=1, how="any").copy()
+    print(f"[INFO] Dropped incomplete stocks. Remaining: {len(df.columns)} columns.")
     print(f"[INFO] Rows after cleaning: {df_clean.shape[0]}")
     return df_clean
 
@@ -54,6 +54,7 @@ def convert_prices_to_returns(df: pd.DataFrame, output_dir: str = "data") -> pd.
 
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "prepared_returns.csv")
+    returns_df = returns_df.sort_values("Date").reset_index(drop=True)
     returns_df.to_csv(output_path, index=False)
 
     print(f"[INFO] Converted prices to daily returns.")

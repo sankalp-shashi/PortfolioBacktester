@@ -1,1 +1,7 @@
 __pycache__/
+.~lock.converted.csv#
+.~lock.merged.csv#
+.~lock.static.csv#
+converted.csv
+merged.csv
+static.csv
