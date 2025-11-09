@@ -5,3 +5,7 @@ __pycache__/
 converted.csv
 merged.csv
 static.csv
+data/.~lock.returns_6M_3M.csv#
+data/returns_6M_3M.csv
+data/prices.csv
+
