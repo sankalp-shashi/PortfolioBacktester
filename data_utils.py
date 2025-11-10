@@ -3,10 +3,10 @@ import pandas as pd
 
 
 def merge_data(stocks_file: str, factors_file: str, output_dir="data") -> pd.DataFrame:
-    stocks_df = pd.read_csv(stocks_file, parse_dates=["Dates"])
-    factors_df = pd.read_csv(factors_file, parse_dates=["Date"])
+    stocks_df = pd.read_csv(stocks_file, parse_dates=["Dates"], dayfirst=True)
+    factors_df = pd.read_csv(factors_file, parse_dates=["Date"], dayfirst=True)
 
-    #rename the stocks_df to have the expected date column name
+    # rename the stocks_df to have the expected date column name
     stocks_df = stocks_df.rename(columns={"Dates": "Date"})
     merged_df = pd.merge(
             stocks_df,
@@ -15,13 +15,16 @@ def merge_data(stocks_file: str, factors_file: str, output_dir="data") -> pd.Dat
             how="inner"
         )
 
+    # Sort by date before saving
+    merged_df = merged_df.sort_values('Date')
+
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "merged_data.csv")
-    # merged_df.to_csv(output_path, index=False)
+    merged_df.to_csv(output_path, index=False)
+
     print(f"[INFO] Merged data saved to: {output_path}")
     print(f"[INFO] Final dataset shape: {merged_df.shape}")
     return merged_df
-
 
 def build_static_stock_universe(df: pd.DataFrame) -> pd.DataFrame:
     # stock_cols = [
