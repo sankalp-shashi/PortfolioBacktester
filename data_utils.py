@@ -64,3 +64,4 @@ def convert_prices_to_returns(df: pd.DataFrame, output_dir: str = "data") -> pd.
     print(f"[INFO] Saved prepared returns to: {output_path}")
     print(f"[INFO] Shape: {returns_df.shape}")
     return returns_df
+
