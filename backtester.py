@@ -1,5 +1,6 @@
 import json
 import pandas as pd
+import numpy as np
 import os
 from pathlib import Path
 
@@ -91,6 +92,52 @@ def compute_holding_return(prices_df, weights_dict, holding_start, holding_end):
     return results
 
 
+def calculate_var_for_strategies(sample_returns, quantile_level=0.01):
+    """
+    Given a list of dicts (each containing strategy returns for one L-day window),
+    compute 99% Historical VaR for each strategy.
+    """
+    strat_names = sample_returns[0].keys()
+    var_dict = {}
+
+    for strat in strat_names:
+        # Extract that strategy's returns across all L-day samples
+        strat_sample = [r[strat] for r in sample_returns if r[strat] is not None]
+        if len(strat_sample) == 0:
+            var_dict[strat] = np.nan
+            continue
+
+        q = np.percentile(strat_sample, quantile_level * 100)
+        var_dict[strat] = -q  # convert to positive loss number
+
+    return var_dict
+
+
+def compute_historical_var(prices_df, weights_dict, formation_start, formation_end, holding_length):
+    """
+    Uses compute_holding_return() repeatedly on overlapping L-day windows within formation period
+    to get the 1% quantile (99% VaR).
+    """
+    all_dates = prices_df['Date'].sort_values().unique()
+    f_mask = (prices_df['Date'] >= formation_start) & (prices_df['Date'] <= formation_end)
+    f_dates = all_dates[np.where(f_mask)[0]]
+
+    L = holding_length
+    sample_returns = []
+
+    for i in range(0, len(f_dates) - L):
+        r_start = f_dates[i]
+        r_end = f_dates[i + L - 1]
+        r = compute_holding_return(prices_df, weights_dict, r_start, r_end)
+        if r is not None:
+            sample_returns.append(r)
+
+    if len(sample_returns) == 0:
+        return None
+
+    return calculate_var_for_strategies(sample_returns)
+
+
 def rolling_backtest(
     prices_path="data/prices.csv",
     weights_dict=None,
@@ -154,6 +201,23 @@ def rolling_backtest(
 
         print(f"\n[INFO] Iteration {iteration}: Holding {holding_start.date()} → {holding_end.date()}")
 
+
+        # Compute the historical 99% VaR for all strategies
+        var_info = compute_historical_var(
+            prices_df,
+            weights_dict,
+            formation_start,
+            formation_end,
+            holding_length=len(
+                prices_df.loc[
+                    (prices_df['Date'] > holding_start) & (prices_df['Date'] <= holding_end),
+                    'Date'
+                ].sort_values().to_numpy()
+            )
+        )
+        if var_info is None:
+            continue
+
         # Compute holding-period return for all strategies
         results = compute_holding_return(
             prices_df,
@@ -162,7 +226,40 @@ def rolling_backtest(
             holding_end
         )
 
-        # Append results to CSV
+
+        # Compare VaR values with realized holding period returns
+        for strat_name, VaR_99 in var_info.items():
+            realized_return = results.get(strat_name, None)
+            if realized_return is None or np.isnan(VaR_99):
+                continue
+
+            violation = realized_return < -VaR_99
+
+            # prepare output row
+            record = {
+                "Window_Start": formation_start,
+                "Window_End": holding_end,
+                "VaR_99": VaR_99,
+                "Realized_Return": realized_return,
+                "Violation": violation
+            }
+
+
+            out_dir = Path("data")
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            out_file = out_dir / f"var_results_{strat_name}.csv"
+            pd.DataFrame([record]).to_csv(
+                out_file,
+                mode="a",
+                header=not out_file.exists(),
+                index=False
+            )
+
+            print(f"[INFO] {strat_name}: VaR={VaR_99:.4f}, Return={realized_return:.4f}, Violation={violation}")
+
+
+        # Append to results CSV
         if results:
             df_out = pd.DataFrame([{
                 "Holding_Start": holding_start.date(),
