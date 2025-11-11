@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import os
 from pathlib import Path
+from equal_weighted_portfolio import *
+from gmv import *
+from tangency_portfolio import *
 
 def init_window_config(start_date: str, formation_months: int, holding_months: int, config_path: str = "config.json"):
     """
@@ -67,7 +70,7 @@ def get_next_window(df, config_path="config.json"):
     return next_window
 
 
-def compute_holding_return(prices_df, weights_dict, holding_start, holding_end):
+def compute_holding_return(prices_df, weights_dict, holding_start, holding_end, log=False):
     """
     Compute holding-period return for each strategy using start & end prices.
     Assumes no rebalancing within window.
@@ -80,15 +83,37 @@ def compute_holding_return(prices_df, weights_dict, holding_start, holding_end):
 
     results = {}
     for strat, weights in weights_dict.items():
-        w = pd.Series(weights)
-        valid_stocks = [c for c in w.index if c in prices_df.columns]
+        # Convert weights to Series with explicit dtype
+        w = pd.Series(weights, dtype=float) if weights else pd.Series(dtype=float)
+
+        # Check if we have valid stocks and weights
+        valid_stocks = [c for c in w.index if c in prices_df.columns] if not w.empty else []
+
+        if not valid_stocks:
+            print(f"[WARNING] No valid stocks found for strategy {strat}")
+            results[strat] = np.nan
+            continue
 
         # Portfolio value at start and end
-        v_start = (start_prices[valid_stocks].values.flatten() * w[valid_stocks]).sum()
-        v_end = (end_prices[valid_stocks].values.flatten() * w[valid_stocks]).sum()
+        v_start = (start_prices[valid_stocks].values.flatten() * w[valid_stocks].values).sum()
+        v_end = (end_prices[valid_stocks].values.flatten() * w[valid_stocks].values).sum()
 
-        results[strat] = (v_end / v_start) - 1
-
+        # Check for valid starting value
+        if v_start <= 0 or np.isnan(v_start):
+            print(f"[WARNING] Invalid starting value {v_start} for strategy {strat}")
+            results[strat] = np.nan
+        else:
+            results[strat] = (v_end / v_start) - 1
+        # w = pd.Series(weights)
+        # valid_stocks = [c for c in w.index if c in prices_df.columns]
+        #
+        # # Portfolio value at start and end
+        # v_start = (start_prices[valid_stocks].values.flatten() * w[valid_stocks]).sum()
+        # v_end = (end_prices[valid_stocks].values.flatten() * w[valid_stocks]).sum()
+        #
+        # results[strat] = (v_end / v_start) - 1
+        if log:
+            print(f"[LOG] starting value {v_start} and ending value {v_end} for strategy {strat}")
     return results
 
 
@@ -137,6 +162,61 @@ def compute_historical_var(prices_df, weights_dict, formation_start, formation_e
 
     return calculate_var_for_strategies(sample_returns)
 
+
+def compute_new_weights(formation_start, formation_end, weights_dict):
+    new_weights_dict = {}
+    for strat_name, weights in weights_dict.items():
+        new_weights = {}
+        if strat_name == "EW":
+            new_weights = get_equal_weighted_portfolio_weights()
+        elif strat_name == "GMV":
+            new_weights = global_min_variance_portfolio(formation_start, formation_end)
+        elif strat_name == "TNG":
+            new_weights = tangency_portfolio(formation_start, formation_end)
+        new_weights_dict[strat_name] = new_weights
+    return new_weights_dict
+
+def log_weights(strat_name, weights_dict, date):
+    """
+    Logs a single strategy's weights with a date into a per-strategy CSV file.
+
+    Parameters
+    ----------
+    strat_name : str
+        Name of the strategy (e.g., 'strat1'). Determines CSV filename.
+    weights_dict : dict
+        Dictionary of stock weights, e.g. {'AAPL': 0.5, 'MSFT': 0.5}.
+    date : str or datetime-like
+        Date of the weights snapshot (e.g., '2025-11-11').
+
+    Behavior
+    --------
+    - Appends to 'data/{strat_name}_weights.csv'
+    - Creates the file if it doesn't exist
+    - Each row corresponds to one date, with weights as columns
+    """
+
+    # Ensure directory exists
+    os.makedirs("data", exist_ok=True)
+
+    # Path to the strategy CSV file
+    csv_path = os.path.join("data", f"{strat_name}_weights.csv")
+
+    # Convert weights to a DataFrame (one row)
+    df_new = pd.DataFrame([weights_dict])
+    df_new.insert(0, "Date", date)  # Add Date as first column
+
+    # If file exists, append; else, create new
+    if os.path.exists(csv_path):
+        df_existing = pd.read_csv(csv_path)
+
+        # Align columns (in case some stocks are missing or new)
+        df_combined = pd.concat([df_existing, df_new], ignore_index=True).fillna(0)
+        df_combined.to_csv(csv_path, index=False)
+    else:
+        df_new.to_csv(csv_path, index=False)
+
+    print(f"[INFO] Logged weights for {strat_name} on {date} → {csv_path}")
 
 def rolling_backtest(
     prices_path="data/prices.csv",
@@ -188,6 +268,11 @@ def rolling_backtest(
         output_file.unlink()  # start fresh
     print(f"[INFO] Output file: {output_file}")
 
+    # weight_log = Path(output_dir) / f"weights_{formation_months}M_{holding_months}M.csv"
+    # if weight_log.exists():
+    #     weight_log.unlink()  # start fresh
+    # print(f"[INFO] Weight file: {weight_log}")
+
     # --- 4. Rolling loop ---
     iteration = 1
     while True:
@@ -199,7 +284,8 @@ def rolling_backtest(
         formation_start, formation_end, holding_end = window
         holding_start = formation_end  # holding starts right after formation
 
-        print(f"\n[INFO] Iteration {iteration}: Holding {holding_start.date()} → {holding_end.date()}")
+        # Rebalance weights
+        weights_dict = compute_new_weights(formation_start, formation_end, weights_dict)
 
 
         # Compute the historical 99% VaR for all strategies
@@ -218,12 +304,14 @@ def rolling_backtest(
         if var_info is None:
             continue
 
+        print(f"\n[INFO] Iteration {iteration}: Holding {holding_start.date()} → {holding_end.date()}")
         # Compute holding-period return for all strategies
         results = compute_holding_return(
             prices_df,
             weights_dict,
             holding_start,
-            holding_end
+            holding_end,
+            log=True
         )
 
 
@@ -269,4 +357,6 @@ def rolling_backtest(
             header = not output_file.exists()
             df_out.to_csv(output_file, mode="a", index=False, header=header)
 
+        for strat_name, weights in weights_dict.items():
+            log_weights(strat_name, weights, holding_end)
         iteration += 1

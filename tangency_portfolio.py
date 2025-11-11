@@ -27,7 +27,7 @@ def tangency_portfolio( start_date, end_date):
     
     # Step 4: Extract and drop unwanted columns
     rf_series = df['RF'] if 'RF' in df.columns else pd.Series(0, index=df.index)
-    df_assets = df.drop(columns=['RF', 'MF', 'NIFTY'], errors='ignore')
+    df_assets = df.drop(columns=['RF', 'MF', 'NIFTY Index'], errors='ignore')
     
     # Step 5: Drop missing values
     df_assets = df_assets.dropna()
@@ -54,8 +54,3 @@ def tangency_portfolio( start_date, end_date):
     weights_dict = dict(zip(df_assets.columns, weights))
     
     return weights_dict
-
-
-# Example usage:
-weights = tangency_portfolio("2015-01-01", "2015-06-30")
-print(weights)

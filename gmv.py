@@ -26,7 +26,7 @@ def global_min_variance_portfolio(start_date, end_date):
     df = df.loc[start_date:end_date]
     
     # Step 4: Drop non-asset columns
-    df_assets = df.drop(columns=['RF', 'MF', 'NIFTY'], errors='ignore')
+    df_assets = df.drop(columns=['RF', 'MF', 'NIFTY Index'], errors='ignore')
     
     # # Step 5: Drop rows with missing values (if any)
     # df_assets = df_assets.dropna()
@@ -50,5 +50,3 @@ def global_min_variance_portfolio(start_date, end_date):
     return weights_dict
 
 
-weights = global_min_variance_portfolio("2009-07-01", "2009-09-30")
-print(weights)
