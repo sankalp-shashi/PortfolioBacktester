@@ -70,6 +70,30 @@ def get_next_window(df, config_path="config.json"):
     return next_window
 
 
+def compute_holding_return_compounded(weights_dict, holding_start, holding_end):
+    results = {}
+    if not weights_dict:
+        return None
+    returns_df = pd.read_csv("data/prepared_returns.csv")
+    assets_df = returns_df.drop(columns=['RF', 'MF', 'NIFTY Index'], errors='ignore')
+    assets_df['Date'] = pd.to_datetime(assets_df['Date'])
+    mask = (assets_df['Date'] >= pd.to_datetime(holding_start)) & (assets_df['Date'] <= pd.to_datetime(holding_end))
+    assets_df = assets_df.loc[mask]
+    for strat, weights in weights_dict.items():
+        w = pd.Series(weights, dtype=float) if weights else pd.Series(dtype=float)
+        valid_stocks = [c for c in w.index if c in assets_df.columns] if not w.empty else []
+        if not valid_stocks:
+            print(f"[WARNING] No valid stocks found for strategy {strat}")
+            results[strat] = np.nan
+            continue
+
+        daily_returns = assets_df[valid_stocks].dot(w[valid_stocks])
+        results[strat] = (1+daily_returns).prod() - 1
+
+    return results
+
+
+
 def compute_holding_return(prices_df, weights_dict, holding_start, holding_end, log=False):
     """
     Compute holding-period return for each strategy using start & end prices.
@@ -172,7 +196,7 @@ def compute_new_weights(formation_start, formation_end, weights_dict):
         elif strat_name == "GMV":
             new_weights = global_min_variance_portfolio(formation_start, formation_end)
         elif strat_name == "TNG":
-            new_weights = tangency_portfolio(formation_start, formation_end)
+            new_weights = get_tangency_portfolio(formation_start, formation_end)
         new_weights_dict[strat_name] = new_weights
     return new_weights_dict
 
@@ -224,7 +248,8 @@ def rolling_backtest(
     formation_months=6,
     holding_months=3,
     start_date="2009-01-01",
-    output_dir="data"
+    output_dir="data",
+    compound=False
 ):
     """
     Runs a rolling backtest across the full dataset using fixed-weight portfolios.
@@ -306,13 +331,21 @@ def rolling_backtest(
 
         print(f"\n[INFO] Iteration {iteration}: Holding {holding_start.date()} → {holding_end.date()}")
         # Compute holding-period return for all strategies
-        results = compute_holding_return(
-            prices_df,
-            weights_dict,
-            holding_start,
-            holding_end,
-            log=True
-        )
+        results = None
+        if compound:
+            results = compute_holding_return_compounded(
+                    weights_dict,
+                    holding_start,
+                    holding_end
+                )
+        else:
+            results = compute_holding_return(
+                prices_df,
+                weights_dict,
+                holding_start,
+                holding_end,
+                log=True
+            )
 
 
         # Compare VaR values with realized holding period returns

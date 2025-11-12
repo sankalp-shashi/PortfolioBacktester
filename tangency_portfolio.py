@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-def tangency_portfolio( start_date, end_date):
+def get_tangency_portfolio(start_date, end_date):
     """
     Compute Tangency (Mean-Variance Efficient) Portfolio Weights.
     

@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def plot_cumulative_returns(csv_path, date_col="Holding_End", plot=True):
+def plot_cumulative_returns(csv_path, date_col="Holding_Start", plot=True):
     """
     Reads a CSV of rolling holding-period returns and computes cumulative compounded returns.
 
