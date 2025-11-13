@@ -6,6 +6,7 @@ from pathlib import Path
 from equal_weighted_portfolio import *
 from gmv import *
 from tangency_portfolio import *
+from active_portfolio import *
 
 def init_window_config(start_date: str, formation_months: int, holding_months: int, config_path: str = "config.json"):
     """
@@ -92,7 +93,43 @@ def compute_holding_return_compounded(weights_dict, holding_start, holding_end):
 
     return results
 
+def compute_window_return_compounded(start_date: str, end_date: str,
+                          column: str,
+                          file_path: str = 'data/prepared_returns.csv') -> float:
+    """
+    Computes compounded return (∏(1+r) - 1) for the specified column
+    between start_date and end_date (inclusive).
 
+    Parameters
+    ----------
+    start_date : str
+        Start date (YYYY-MM-DD)
+    end_date : str
+        End date (YYYY-MM-DD)
+    column : str
+        Column name in CSV (e.g. 'RF' or 'NIFTY Index')
+    file_path : str
+        Path to prepared_returns.csv
+
+    Returns
+    -------
+    float
+        Compounded return for that period (decimal form).
+        Returns np.nan if no data found.
+    """
+    df = pd.read_csv(file_path, parse_dates=["Date"])
+    if column not in df.columns:
+        raise ValueError(f"Column '{column}' not found in {file_path}")
+
+    mask = (df["Date"] >= pd.to_datetime(start_date)) & (df["Date"] <= pd.to_datetime(end_date))
+    sub = df.loc[mask, column].dropna()
+
+    if sub.empty:
+        print(f"[WARN] No data for {column} between {start_date} and {end_date}")
+        return np.nan
+
+    compounded = np.prod(1 + sub.values) - 1
+    return compounded
 
 def compute_holding_return(prices_df, weights_dict, holding_start, holding_end, log=False):
     """
@@ -118,26 +155,17 @@ def compute_holding_return(prices_df, weights_dict, holding_start, holding_end, 
             results[strat] = np.nan
             continue
 
-        # Portfolio value at start and end
-        v_start = (start_prices[valid_stocks].values.flatten() * w[valid_stocks].values).sum()
-        v_end = (end_prices[valid_stocks].values.flatten() * w[valid_stocks].values).sum()
+        # Compute per-stock returns over the window
+        start_vals = start_prices[valid_stocks].values.flatten()
+        end_vals = end_prices[valid_stocks].values.flatten()
+        indiv_returns = (end_vals / start_vals) - 1
 
-        # Check for valid starting value
-        if v_start <= 0 or np.isnan(v_start):
-            print(f"[WARNING] Invalid starting value {v_start} for strategy {strat}")
-            results[strat] = np.nan
-        else:
-            results[strat] = (v_end / v_start) - 1
-        # w = pd.Series(weights)
-        # valid_stocks = [c for c in w.index if c in prices_df.columns]
-        #
-        # # Portfolio value at start and end
-        # v_start = (start_prices[valid_stocks].values.flatten() * w[valid_stocks]).sum()
-        # v_end = (end_prices[valid_stocks].values.flatten() * w[valid_stocks]).sum()
-        #
-        # results[strat] = (v_end / v_start) - 1
-        if log:
-            print(f"[LOG] starting value {v_start} and ending value {v_end} for strategy {strat}")
+        # Weighted portfolio return (sum of weighted individual returns)
+        port_ret = np.sum(w[valid_stocks].values * indiv_returns)
+        results[strat] = port_ret
+
+        # if log:
+            # print(f"[LOG] starting value {v_start} and ending value {v_end} for strategy {strat}")
     return results
 
 
@@ -197,6 +225,8 @@ def compute_new_weights(formation_start, formation_end, weights_dict):
             new_weights = global_min_variance_portfolio(formation_start, formation_end)
         elif strat_name == "TNG":
             new_weights = get_tangency_portfolio(formation_start, formation_end)
+        elif strat_name == "ACTIVE":
+            new_weights = form_active_portfolio(formation_start, formation_end)
         new_weights_dict[strat_name] = new_weights
     return new_weights_dict
 
@@ -347,6 +377,8 @@ def rolling_backtest(
                 log=True
             )
 
+        results['RF'] = compute_window_return_compounded(holding_start, holding_end, 'RF')
+        results['NIFTY Index'] = compute_window_return_compounded(holding_start, holding_end, 'NIFTY Index')
 
         # Compare VaR values with realized holding period returns
         for strat_name, VaR_99 in var_info.items():
